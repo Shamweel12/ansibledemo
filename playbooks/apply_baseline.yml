@@ -1,0 +1,14 @@
+- name: Apply baseline configuration (one-time)
+  hosts: all
+  gather_facts: no
+
+  vars:
+    intended_lines: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml').splitlines() }}"
+
+  tasks:
+    - name: Apply intended baseline
+      cisco.ios.ios_config:
+        lines: "{{ intended_lines }}"
+        match: exact
+      diff: yes
+
