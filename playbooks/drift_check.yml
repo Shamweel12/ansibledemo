@@ -21,7 +21,7 @@
       set_fact:
         device_vlans: >-
           {{ vlan_output.stdout[0]
-             | regex_findall('^(\\d+)', multiline=True)
+             | regex_findall('^\\s*(\\d+)\\s+', multiline=True)
              | map('int')
              | list }}
 
