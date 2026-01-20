@@ -1,4 +1,4 @@
-- name: Detect unauthorized interface VLAN change (robust parser)
+- name: Detect unauthorized interface VLAN change (robust parser + notification)
   hosts: all
   gather_facts: no
 
@@ -19,38 +19,50 @@
 
     - name: Initialize parser variables
       set_fact:
-        detected_vlan: NONE
-        current_vlan: NONE
+        detected_vlan: "NONE"
+        current_vlan: "NONE"
 
-    - name: Parse VLAN table line by line
+    # Step 1: Walk through VLAN table and keep track of current VLAN
+    - name: Track current VLAN while parsing table
       set_fact:
-        current_vlan: "{{ (item | regex_findall('^\\s*(\\d+)\\s+'))[0] if (item is match('^\\s*\\d+')) else current_vlan }}"
+        current_vlan: >-
+          {{ (item | regex_findall('^\\s*(\\d+)\\s+'))[0]
+             if (item is match('^\\s*\\d+'))
+             else current_vlan }}
       loop: "{{ vlan_output.stdout[0].splitlines() }}"
-      when: detected_vlan == 'NONE'
-      register: vlan_parse
+      when: detected_vlan == "NONE"
 
+    # Step 2: Detect which VLAN contains the interface
     - name: Detect VLAN where interface appears
       set_fact:
         detected_vlan: "{{ current_vlan }}"
       when:
         - iface_short in item
-        - detected_vlan == 'NONE'
+        - detected_vlan == "NONE"
       loop: "{{ vlan_output.stdout[0].splitlines() }}"
       vars:
-        current_vlan: "{{ (item | regex_findall('^\\s*(\\d+)\\s+'))[0] if (item is match('^\\s*\\d+')) else current_vlan }}"
+        current_vlan: >-
+          {{ (item | regex_findall('^\\s*(\\d+)\\s+'))[0]
+             if (item is match('^\\s*\\d+'))
+             else current_vlan }}
 
-    - name: Show comparison
+    - name: Show comparison (job output)
       debug:
         msg:
           - "Approved VLAN (Git): {{ golden.interface_intent.access_vlan }}"
           - "Detected VLAN on interface: {{ detected_vlan }}"
 
-    - name: Fail if VLAN drift detected
+    # ✅ THIS IS THE KEY PART FOR EMAIL NOTIFICATIONS
+    - name: Publish drift message as job artifact
+      set_stats:
+        data:
+          drift_message: >-
+            Interface {{ golden.interface_intent.name }}
+            expected in VLAN {{ golden.interface_intent.access_vlan }}
+            but found in VLAN {{ detected_vlan }}
+
+    - name: Fail job if VLAN drift detected
       fail:
-        msg: >-
-          UNAUTHORIZED CHANGE:
-          Interface {{ golden.interface_intent.name }}
-          expected in VLAN {{ golden.interface_intent.access_vlan }}
-          but found in VLAN {{ detected_vlan }}
+        msg: "{{ drift_message }}"
       when: detected_vlan|string != golden.interface_intent.access_vlan|string
 

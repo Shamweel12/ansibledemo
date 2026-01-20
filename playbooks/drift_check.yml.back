@@ -1,0 +1,56 @@
+- name: Detect unauthorized interface VLAN change (robust parser)
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Load interface intent from golden file
+      set_fact:
+        golden: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml }}"
+
+    - name: Normalize interface name to short form
+      set_fact:
+        iface_short: "{{ golden.interface_intent.name | regex_replace('GigabitEthernet', 'Gi') }}"
+
+    - name: Get VLAN table from device
+      cisco.ios.ios_command:
+        commands:
+          - show vlan brief
+      register: vlan_output
+
+    - name: Initialize parser variables
+      set_fact:
+        detected_vlan: NONE
+        current_vlan: NONE
+
+    - name: Parse VLAN table line by line
+      set_fact:
+        current_vlan: "{{ (item | regex_findall('^\\s*(\\d+)\\s+'))[0] if (item is match('^\\s*\\d+')) else current_vlan }}"
+      loop: "{{ vlan_output.stdout[0].splitlines() }}"
+      when: detected_vlan == 'NONE'
+      register: vlan_parse
+
+    - name: Detect VLAN where interface appears
+      set_fact:
+        detected_vlan: "{{ current_vlan }}"
+      when:
+        - iface_short in item
+        - detected_vlan == 'NONE'
+      loop: "{{ vlan_output.stdout[0].splitlines() }}"
+      vars:
+        current_vlan: "{{ (item | regex_findall('^\\s*(\\d+)\\s+'))[0] if (item is match('^\\s*\\d+')) else current_vlan }}"
+
+    - name: Show comparison
+      debug:
+        msg:
+          - "Approved VLAN (Git): {{ golden.interface_intent.access_vlan }}"
+          - "Detected VLAN on interface: {{ detected_vlan }}"
+
+    - name: Fail if VLAN drift detected
+      fail:
+        msg: >-
+          UNAUTHORIZED CHANGE:
+          Interface {{ golden.interface_intent.name }}
+          expected in VLAN {{ golden.interface_intent.access_vlan }}
+          but found in VLAN {{ detected_vlan }}
+      when: detected_vlan|string != golden.interface_intent.access_vlan|string
+
