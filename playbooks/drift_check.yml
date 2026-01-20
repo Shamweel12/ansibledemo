@@ -1,4 +1,4 @@
-- name: Detect unauthorized interface VLAN change (VLAN table based)
+- name: Detect unauthorized interface VLAN change (robust parser)
   hosts: all
   gather_facts: no
 
@@ -7,30 +7,37 @@
       set_fact:
         golden: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml }}"
 
+    - name: Normalize interface name to short form
+      set_fact:
+        iface_short: "{{ golden.interface_intent.name | regex_replace('GigabitEthernet', 'Gi') }}"
+
     - name: Get VLAN table from device
       cisco.ios.ios_command:
         commands:
           - show vlan brief
       register: vlan_output
 
-    - name: Build VLAN-to-ports mapping
+    - name: Initialize parser variables
       set_fact:
-        vlan_port_lines: "{{ vlan_output.stdout[0].splitlines() }}"
+        detected_vlan: NONE
+        current_vlan: NONE
 
-    - name: Find VLAN where interface is present
+    - name: Parse VLAN table line by line
       set_fact:
-        detected_vlan: >-
-          {{
-            vlan_port_lines
-            | select('search', golden.interface_intent.name)
-            | list
-            | first
-            | regex_findall('^(\\s*\\d+)')
-            | first
-            | int
-            if (vlan_port_lines | select('search', golden.interface_intent.name) | list | length > 0)
-            else 'NONE'
-          }}
+        current_vlan: "{{ (item | regex_findall('^\\s*(\\d+)\\s+'))[0] if (item is match('^\\s*\\d+')) else current_vlan }}"
+      loop: "{{ vlan_output.stdout[0].splitlines() }}"
+      when: detected_vlan == 'NONE'
+      register: vlan_parse
+
+    - name: Detect VLAN where interface appears
+      set_fact:
+        detected_vlan: "{{ current_vlan }}"
+      when:
+        - iface_short in item
+        - detected_vlan == 'NONE'
+      loop: "{{ vlan_output.stdout[0].splitlines() }}"
+      vars:
+        current_vlan: "{{ (item | regex_findall('^\\s*(\\d+)\\s+'))[0] if (item is match('^\\s*\\d+')) else current_vlan }}"
 
     - name: Show comparison
       debug:
@@ -46,5 +53,4 @@
           expected in VLAN {{ golden.interface_intent.access_vlan }}
           but found in VLAN {{ detected_vlan }}
       when: detected_vlan|string != golden.interface_intent.access_vlan|string
-
 
