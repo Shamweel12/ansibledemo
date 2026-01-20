@@ -1,2 +1,2 @@
-hostname NADRA-CORE-01
+hostname POC-CORE-01
 
