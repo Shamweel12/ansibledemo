@@ -1,0 +1,3 @@
+vlan 123
+ name GOOD_VLAN
+
