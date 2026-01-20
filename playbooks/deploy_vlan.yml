@@ -1,0 +1,16 @@
+- name: Apply VLAN config from repo (demo)
+  hosts: all
+  gather_facts: no
+  connection: network_cli
+
+  tasks:
+    - name: Load VLAN config file (v1 or v2-bad depending on project revision)
+      set_fact:
+        vlan_cfg: "{{ lookup('file', playbook_dir ~ '/../configs/vlan_good.txt') }}"
+      when: true
+
+    - name: Push VLAN config
+      cisco.ios.ios_config:
+        lines: "{{ vlan_cfg.splitlines() }}"
+        save_when: modified
+
