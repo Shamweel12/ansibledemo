@@ -9,5 +9,5 @@
         lines:
           - name MANAGED_BY_ANSIBLE
         match: exact
-        diff: yes
+        replace: line
 

@@ -1,24 +1,23 @@
-- name: Detect manual configuration changes (Drift Detection)
+- name: Detect manual VLAN changes (Drift Detection)
   hosts: all
   gather_facts: no
 
-  vars:
-    intended_lines: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml').splitlines() }}"
   tasks:
-    - name: Compare running config with intended baseline
+    - name: Check VLAN 1234 baseline
       cisco.ios.ios_config:
-        lines: "{{ intended_lines }}"
+        parents: vlan 1234
+        lines:
+          - name MANAGED_BY_ANSIBLE
         match: exact
       check_mode: yes
-      diff: yes
       register: drift
 
     - name: Show drift result
-      ansible.builtin.debug:
-        msg: "Drift detected = {{ drift.changed }}"
+      debug:
+        msg: "VLAN drift detected = {{ drift.changed }}"
 
-    - name: Fail job if drift is detected
-      ansible.builtin.fail:
-        msg: "MANUAL CHANGE DETECTED — configuration drift found"
-      when: drift.changed | bool
+    - name: Fail job if drift detected
+      fail:
+        msg: "MANUAL VLAN CHANGE DETECTED — drift found"
+      when: drift.changed
 
