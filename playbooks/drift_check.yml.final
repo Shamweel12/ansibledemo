@@ -1,0 +1,40 @@
+- name: Detect unauthorized VLAN creation (simple demo)
+  hosts: all
+  gather_facts: no
+  connection: network_cli
+
+  tasks:
+
+    - name: Load approved VLANs from Git
+      set_fact:
+        approved_vlans: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml | dict2items | map(attribute='value') | first }}"
+
+    - name: Get VLAN table
+      cisco.ios.ios_command:
+        commands:
+          - show vlan brief
+      register: vlan_output
+
+    - name: Check if VLAN 2001 exists
+      set_fact:
+        vlan_2001_present: "{{ '2001' in vlan_output.stdout[0] }}"
+
+    - name: Build drift message
+      set_fact:
+        drift_message: >-
+          UNAUTHORIZED VLAN DETECTED:
+          VLAN 2001 was created manually
+
+    - name: Publish drift artifact
+      set_stats:
+        data:
+          drift_message: "{{ drift_message }}"
+          unauthorized_vlan: "2001"
+
+    - name: Fail job if VLAN 2001 exists
+      fail:
+        msg: "{{ drift_message }}"
+      when:
+        - vlan_2001_present
+        - "'2001' not in approved_vlans"
+

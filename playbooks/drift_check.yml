@@ -1,36 +1,75 @@
-- name: Detect unauthorized VLAN creation (simple demo)
+- name: Detect unauthorized VLAN creation (simple demo + email)
   hosts: all
   gather_facts: no
   connection: network_cli
 
   tasks:
 
+    # ---------------------------------------
+    # Load approved VLANs from Git
+    # ---------------------------------------
     - name: Load approved VLANs from Git
       set_fact:
-        approved_vlans: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml | dict2items | map(attribute='value') | first }}"
+        approved_vlans: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml')
+                            | from_yaml
+                            | dict2items
+                            | map(attribute='value')
+                            | first }}"
 
+    # ---------------------------------------
+    # Get VLAN table
+    # ---------------------------------------
     - name: Get VLAN table
       cisco.ios.ios_command:
         commands:
           - show vlan brief
       register: vlan_output
 
+    # ---------------------------------------
+    # Check if VLAN 2001 exists
+    # ---------------------------------------
     - name: Check if VLAN 2001 exists
       set_fact:
         vlan_2001_present: "{{ '2001' in vlan_output.stdout[0] }}"
 
+    # ---------------------------------------
+    # Build drift message
+    # ---------------------------------------
     - name: Build drift message
       set_fact:
-        drift_message: >-
-          UNAUTHORIZED VLAN DETECTED:
-          VLAN 2001 was created manually
+        drift_message: "UNAUTHORIZED VLAN DETECTED: VLAN 2001 was created manually"
 
-    - name: Publish drift artifact
-      set_stats:
-        data:
-          drift_message: "{{ drift_message }}"
-          unauthorized_vlan: "2001"
+    # ---------------------------------------
+    # Send EMAIL alert (OPTION 2 – hardcoded SMTP)
+    # ---------------------------------------
+    - name: Send email alert with drift message
+      mail:
+        host: smtp.office365.com
+        port: 587
+        username: shamweel-ext@premier.com.pk
+        password: "P@kistan@123"
+        to: shamweelrehman@gmail.com
+        from: shamweel-ext@premier.com.pk
+        subject: "🚨 VLAN DRIFT DETECTED on {{ inventory_hostname }}"
+        body: |
+          CONFIGURATION DRIFT DETECTED
 
+          Device: {{ inventory_hostname }}
+
+          {{ drift_message }}
+
+          This VLAN was created manually and is not approved.
+
+          Please take immediate action.
+        secure: starttls
+      delegate_to: localhost
+      when:
+        - vlan_2001_present
+        - "'2001' not in approved_vlans"
+
+    # ---------------------------------------
+    # Fail job intentionally so drift is visible in AAP
+    # ---------------------------------------
     - name: Fail job if VLAN 2001 exists
       fail:
         msg: "{{ drift_message }}"
