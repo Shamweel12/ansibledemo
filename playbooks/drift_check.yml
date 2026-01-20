@@ -3,8 +3,7 @@
   gather_facts: no
 
   vars:
-    intended_lines: "{{ lookup('file', 'golden/' ~ inventory_hostname ~ '.yml').splitlines() }}"
-
+    intended_lines: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml').splitlines() }}"
   tasks:
     - name: Compare running config with intended baseline
       cisco.ios.ios_config:
