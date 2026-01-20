@@ -1,0 +1,15 @@
+- name: Deploy hostname from Git (Version Control Demo)
+  hosts: all
+  gather_facts: no
+  connection: network_cli
+
+  tasks:
+    - name: Load hostname from Git
+      set_fact:
+        hostname_cfg: "{{ lookup('file', playbook_dir ~ '/../configs/hostname.txt') }}"
+
+    - name: Apply hostname
+      cisco.ios.ios_config:
+        lines: "{{ hostname_cfg.splitlines() }}"
+        save_when: modified
+

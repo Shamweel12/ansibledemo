@@ -1,0 +1,2 @@
+hostname NADRA-CORE-01
+
