@@ -5,9 +5,6 @@
 
   tasks:
 
-    # ---------------------------------------
-    # Load approved VLANs from Git
-    # ---------------------------------------
     - name: Load approved VLANs from Git
       set_fact:
         approved_vlans: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml')
@@ -16,34 +13,25 @@
                             | map(attribute='value')
                             | first }}"
 
-    # ---------------------------------------
-    # Get VLAN table
-    # ---------------------------------------
     - name: Get VLAN table
       cisco.ios.ios_command:
         commands:
           - show vlan brief
       register: vlan_output
 
-    # ---------------------------------------
-    # Check if VLAN 2001 exists
-    # ---------------------------------------
     - name: Check if VLAN 2001 exists
       set_fact:
         vlan_2001_present: "{{ '2001' in vlan_output.stdout[0] }}"
 
-    # ---------------------------------------
-    # Build drift message
-    # ---------------------------------------
     - name: Build drift message
       set_fact:
         drift_message: "UNAUTHORIZED VLAN DETECTED: VLAN 2001 was created manually"
 
     # ---------------------------------------
-    # Send EMAIL alert (OPTION 2 – hardcoded SMTP)
+    # SEND EMAIL (FIXED MODULE NAME)
     # ---------------------------------------
     - name: Send email alert with drift message
-      mail:
+      ansible.builtin.mail:
         host: smtp.office365.com
         port: 587
         username: shamweel-ext@premier.com.pk
@@ -67,9 +55,6 @@
         - vlan_2001_present
         - "'2001' not in approved_vlans"
 
-    # ---------------------------------------
-    # Fail job intentionally so drift is visible in AAP
-    # ---------------------------------------
     - name: Fail job if VLAN 2001 exists
       fail:
         msg: "{{ drift_message }}"
