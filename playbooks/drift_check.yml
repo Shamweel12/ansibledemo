@@ -57,11 +57,12 @@
       set_stats:
         data:
           drift_message: >-
+            UNAUTHORIZED CHANGE DETECTED:
             Interface {{ golden.interface_intent.name }}
-            expected in VLAN {{ golden.interface_intent.access_vlan }}
-            but found in VLAN {{ detected_vlan }}
+            expected VLAN {{ golden.interface_intent.access_vlan }}
+            but found VLAN {{ detected_vlan }}
 
-    - name: Fail job if VLAN drift detected
+    - name: Fail if VLAN drift detected
       fail:
         msg: "{{ drift_message }}"
       when: detected_vlan|string != golden.interface_intent.access_vlan|string
