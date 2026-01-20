@@ -1,0 +1,25 @@
+- name: Detect manual configuration changes (Drift Detection)
+  hosts: all
+  gather_facts: no
+
+  vars:
+    intended_lines: "{{ lookup('file', 'golden/' ~ inventory_hostname ~ '.yml').splitlines() }}"
+
+  tasks:
+    - name: Compare running config with intended baseline
+      cisco.ios.ios_config:
+        lines: "{{ intended_lines }}"
+        match: exact
+      check_mode: yes
+      diff: yes
+      register: drift
+
+    - name: Show drift result
+      ansible.builtin.debug:
+        msg: "Drift detected = {{ drift.changed }}"
+
+    - name: Fail job if drift is detected
+      ansible.builtin.fail:
+        msg: "MANUAL CHANGE DETECTED — configuration drift found"
+      when: drift.changed | bool
+
