@@ -1,4 +1,4 @@
-- banner motd ^Authorized access only - Managed by Ansible^
+- banner motd #Authorized access only - Managed by Ansible^
 - logging buffered 100000
 - interface Vlan1234
 - description Managed_by_Ansible
