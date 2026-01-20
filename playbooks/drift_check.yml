@@ -1,23 +1,34 @@
-- name: Detect manual VLAN changes (Drift Detection)
+- name: Detect unauthorized VLANs (Exclusive Compliance)
   hosts: all
   gather_facts: no
 
+  vars:
+    approved_vlans: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml | json_query('approved_vlans') }}"
+
   tasks:
-    - name: Check VLAN 1234 baseline
-      cisco.ios.ios_config:
-        parents: vlan 1234
-        lines:
-          - name MANAGED_BY_ANSIBLE
-        match: exact
-      check_mode: yes
-      register: drift
+    - name: Get VLAN list from device
+      cisco.ios.ios_command:
+        commands:
+          - show vlan brief
+      register: vlan_output
 
-    - name: Show drift result
+    - name: Extract VLAN IDs from output
+      set_fact:
+        device_vlans: "{{ vlan_output.stdout[0] | regex_findall('^(\\d+)', multiline=True) | map('int') | list }}"
+
+    - name: Find unauthorized VLANs
+      set_fact:
+        unauthorized_vlans: "{{ device_vlans | difference(approved_vlans) }}"
+
+    - name: Show compliance summary
       debug:
-        msg: "VLAN drift detected = {{ drift.changed }}"
+        msg:
+          - "Approved VLANs: {{ approved_vlans }}"
+          - "Device VLANs: {{ device_vlans }}"
+          - "Unauthorized VLANs: {{ unauthorized_vlans }}"
 
-    - name: Fail job if drift detected
+    - name: Fail if unauthorized VLANs exist
       fail:
-        msg: "MANUAL VLAN CHANGE DETECTED — drift found"
-      when: drift.changed
+        msg: "UNAUTHORIZED VLAN(S) DETECTED: {{ unauthorized_vlans }}"
+      when: unauthorized_vlans | length > 0
 
