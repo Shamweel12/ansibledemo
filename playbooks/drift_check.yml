@@ -2,19 +2,28 @@
   hosts: all
   gather_facts: no
 
-  vars:
-    approved_vlans: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml | json_query('approved_vlans') }}"
-
   tasks:
+    - name: Load approved VLANs from golden file
+      set_fact:
+        golden_data: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml }}"
+
+    - name: Set approved VLAN list
+      set_fact:
+        approved_vlans: "{{ golden_data.approved_vlans }}"
+
     - name: Get VLAN list from device
       cisco.ios.ios_command:
         commands:
           - show vlan brief
       register: vlan_output
 
-    - name: Extract VLAN IDs from output
+    - name: Extract VLAN IDs from device output
       set_fact:
-        device_vlans: "{{ vlan_output.stdout[0] | regex_findall('^(\\d+)', multiline=True) | map('int') | list }}"
+        device_vlans: >-
+          {{ vlan_output.stdout[0]
+             | regex_findall('^(\\d+)', multiline=True)
+             | map('int')
+             | list }}
 
     - name: Find unauthorized VLANs
       set_fact:
@@ -23,8 +32,8 @@
     - name: Show compliance summary
       debug:
         msg:
-          - "Approved VLANs: {{ approved_vlans }}"
-          - "Device VLANs: {{ device_vlans }}"
+          - "Approved VLANs (Git): {{ approved_vlans }}"
+          - "VLANs on device: {{ device_vlans }}"
           - "Unauthorized VLANs: {{ unauthorized_vlans }}"
 
     - name: Fail if unauthorized VLANs exist
