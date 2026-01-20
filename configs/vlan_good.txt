@@ -1,0 +1,3 @@
+vlan 12345
+ name ANSIBLE_OK
+
