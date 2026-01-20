@@ -1,73 +1,40 @@
-- name: Detect unauthorized VLAN creation
+- name: Detect unauthorized VLAN creation (simple demo)
   hosts: all
   gather_facts: no
   connection: network_cli
 
   tasks:
 
-    # ---------------------------------------
-    # Load approved VLANs from Git
-    # ---------------------------------------
-    - name: Load approved VLANs
+    - name: Load approved VLANs from Git
       set_fact:
-        approved_vlans: >-
-          {{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml')
-             | from_yaml
-             | dict2items
-             | selectattr('key','equalto','approved_vlans')
-             | map(attribute='value')
-             | first }}
+        approved_vlans: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml | dict2items | map(attribute='value') | first }}"
 
-    # ---------------------------------------
-    # Get VLAN list from device
-    # ---------------------------------------
     - name: Get VLAN table
       cisco.ios.ios_command:
         commands:
           - show vlan brief
       register: vlan_output
 
-    # ---------------------------------------
-    # Extract VLAN IDs from output
-    # ---------------------------------------
-    - name: Extract VLAN IDs
+    - name: Check if VLAN 2001 exists
       set_fact:
-        device_vlans: >-
-          {{ vlan_output.stdout[0].splitlines()
-             | select('match','^\\s*\\d+')
-             | map('regex_search','^\\s*(\\d+)','\\1')
-             | list }}
+        vlan_2001_present: "{{ '2001' in vlan_output.stdout[0] }}"
 
-    # ---------------------------------------
-    # Find unauthorized VLANs
-    # ---------------------------------------
-    - name: Find unauthorized VLANs
-      set_fact:
-        unauthorized_vlans: "{{ device_vlans | difference(approved_vlans) }}"
-
-    # ---------------------------------------
-    # Build drift message
-    # ---------------------------------------
     - name: Build drift message
       set_fact:
         drift_message: >-
-          UNAUTHORIZED VLAN(S) DETECTED:
-          {{ unauthorized_vlans | join(', ') }}
+          UNAUTHORIZED VLAN DETECTED:
+          VLAN 2001 was created manually
 
-    # ---------------------------------------
-    # Publish drift message for notifications
-    # ---------------------------------------
     - name: Publish drift artifact
       set_stats:
         data:
           drift_message: "{{ drift_message }}"
-          unauthorized_vlans: "{{ unauthorized_vlans }}"
+          unauthorized_vlan: "2001"
 
-    # ---------------------------------------
-    # Fail job if drift exists
-    # ---------------------------------------
-    - name: Fail if unauthorized VLAN detected
+    - name: Fail job if VLAN 2001 exists
       fail:
         msg: "{{ drift_message }}"
-      when: unauthorized_vlans | length > 0
+      when:
+        - vlan_2001_present
+        - "'2001' not in approved_vlans"
 
