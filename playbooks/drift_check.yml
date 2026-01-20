@@ -1,4 +1,4 @@
-- name: Detect unauthorized VLAN creation (simple demo + email)
+- name: Detect unauthorized VLAN creation (simple demo)
   hosts: all
   gather_facts: no
   connection: network_cli
@@ -23,41 +23,15 @@
       set_fact:
         vlan_2001_present: "{{ '2001' in vlan_output.stdout[0] }}"
 
-    - name: Build drift message
-      set_fact:
-        drift_message: "UNAUTHORIZED VLAN DETECTED: VLAN 2001 was created manually"
-
-    # ---------------------------------------
-    # SEND EMAIL (FIXED MODULE NAME)
-    # ---------------------------------------
-    - name: Send email alert with drift message
-      ansible.builtin.mail:
-        host: smtp.office365.com
-        port: 587
-        username: shamweel-ext@premier.com.pk
-        password: "P@kistan@123"
-        to: shamweelrehman@gmail.com
-        from: shamweel-ext@premier.com.pk
-        subject: "🚨 VLAN DRIFT DETECTED on {{ inventory_hostname }}"
-        body: |
-          CONFIGURATION DRIFT DETECTED
+    - name: Fail job if unauthorized VLAN detected
+      fail:
+        msg: |
+          🚨 CONFIGURATION DRIFT DETECTED 🚨
 
           Device: {{ inventory_hostname }}
+          Unauthorized VLAN: 2001
 
-          {{ drift_message }}
-
-          This VLAN was created manually and is not approved.
-
-          Please take immediate action.
-        secure: starttls
-      delegate_to: localhost
-      when:
-        - vlan_2001_present
-        - "'2001' not in approved_vlans"
-
-    - name: Fail job if VLAN 2001 exists
-      fail:
-        msg: "{{ drift_message }}"
+          VLAN 2001 was created manually and is NOT approved.
       when:
         - vlan_2001_present
         - "'2001' not in approved_vlans"
