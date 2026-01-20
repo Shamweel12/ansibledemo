@@ -1,88 +1,73 @@
-- name: Detect unauthorized interface VLAN change (robust parser + notification)
+- name: Detect unauthorized VLAN creation
   hosts: all
   gather_facts: no
   connection: network_cli
 
   tasks:
 
-    # --------------------------------------------------
-    # Load golden intent from Git
-    # --------------------------------------------------
-    - name: Load interface intent from golden file
+    # ---------------------------------------
+    # Load approved VLANs from Git
+    # ---------------------------------------
+    - name: Load approved VLANs
       set_fact:
-        golden: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml }}"
+        approved_vlans: >-
+          {{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml')
+             | from_yaml
+             | dict2items
+             | selectattr('key','equalto','approved_vlans')
+             | map(attribute='value')
+             | first }}
 
-    - name: Normalize interface name to short form
-      set_fact:
-        iface_short: "{{ golden.interface_intent.name | regex_replace('GigabitEthernet', 'Gi') }}"
-
-    # --------------------------------------------------
-    # Get VLAN table from device
-    # --------------------------------------------------
-    - name: Get VLAN table from device
+    # ---------------------------------------
+    # Get VLAN list from device
+    # ---------------------------------------
+    - name: Get VLAN table
       cisco.ios.ios_command:
         commands:
           - show vlan brief
       register: vlan_output
 
-    # --------------------------------------------------
-    # Initialize parser variables
-    # --------------------------------------------------
-    - name: Initialize parser variables
+    # ---------------------------------------
+    # Extract VLAN IDs from output
+    # ---------------------------------------
+    - name: Extract VLAN IDs
       set_fact:
-        detected_vlan: "NONE"
-        current_vlan: "NONE"
+        device_vlans: >-
+          {{ vlan_output.stdout[0].splitlines()
+             | select('match','^\\s*\\d+')
+             | map('regex_search','^\\s*(\\d+)','\\1')
+             | list }}
 
-    # --------------------------------------------------
-    # Track current VLAN while parsing table
-    # --------------------------------------------------
-    - name: Track current VLAN while parsing table
+    # ---------------------------------------
+    # Find unauthorized VLANs
+    # ---------------------------------------
+    - name: Find unauthorized VLANs
       set_fact:
-        current_vlan: >-
-          {{ (item | regex_findall('^\\s*(\\d+)\\s+'))[0]
-             if (item is match('^\\s*\\d+')) else current_vlan }}
-      loop: "{{ vlan_output.stdout[0].splitlines() }}"
+        unauthorized_vlans: "{{ device_vlans | difference(approved_vlans) }}"
 
-    # --------------------------------------------------
-    # Detect VLAN where interface appears
-    # --------------------------------------------------
-    - name: Detect VLAN where interface appears
+    # ---------------------------------------
+    # Build drift message
+    # ---------------------------------------
+    - name: Build drift message
       set_fact:
-        detected_vlan: "{{ (item | regex_findall('^\\s*(\\d+)\\s+'))[0] }}"
-      when:
-        - iface_short in item
-        - detected_vlan == "NONE"
-        - item is match('^\\s*\\d+')
-      loop: "{{ vlan_output.stdout[0].splitlines() }}"
+        drift_message: >-
+          UNAUTHORIZED VLAN(S) DETECTED:
+          {{ unauthorized_vlans | join(', ') }}
 
-    # --------------------------------------------------
-    # Show comparison in job output
-    # --------------------------------------------------
-    - name: Show comparison (job output)
-      debug:
-        msg:
-          - "Approved VLAN (Git): {{ golden.interface_intent.access_vlan }}"
-          - "Detected VLAN on interface: {{ detected_vlan }}"
-
-    # --------------------------------------------------
-    # Publish drift details as job artifacts (CRITICAL)
-    # --------------------------------------------------
-    - name: Publish drift details for notification
+    # ---------------------------------------
+    # Publish drift message for notifications
+    # ---------------------------------------
+    - name: Publish drift artifact
       set_stats:
         data:
-          drift_message: >-
-            UNAUTHORIZED CHANGE DETECTED:
-            Interface {{ golden.interface_intent.name }}
-            expected VLAN {{ golden.interface_intent.access_vlan }}
-            but found VLAN {{ detected_vlan }}
-          expected_vlan: "{{ golden.interface_intent.access_vlan }}"
-          actual_vlan: "{{ detected_vlan }}"
+          drift_message: "{{ drift_message }}"
+          unauthorized_vlans: "{{ unauthorized_vlans }}"
 
-    # --------------------------------------------------
-    # Fail job if drift is detected
-    # --------------------------------------------------
-    - name: Fail if VLAN drift detected
+    # ---------------------------------------
+    # Fail job if drift exists
+    # ---------------------------------------
+    - name: Fail if unauthorized VLAN detected
       fail:
         msg: "{{ drift_message }}"
-      when: detected_vlan|string != golden.interface_intent.access_vlan|string
+      when: unauthorized_vlans | length > 0
 

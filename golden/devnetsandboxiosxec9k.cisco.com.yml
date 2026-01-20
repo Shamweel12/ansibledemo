@@ -1,4 +1,3 @@
-interface_intent:
-  name: GigabitEthernet1/0/1
-  access_vlan: 1234
+approved_vlans:
+  - "1234"
 
