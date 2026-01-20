@@ -1,4 +1,4 @@
-- name: Detect unauthorized interface VLAN change
+- name: Detect unauthorized interface VLAN change (VLAN table based)
   hosts: all
   gather_facts: no
 
@@ -7,29 +7,44 @@
       set_fact:
         golden: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml }}"
 
-    - name: Get running config of interface
+    - name: Get VLAN table from device
       cisco.ios.ios_command:
         commands:
-          - "show running-config interface {{ golden.interface_intent.name }}"
-      register: int_cfg
+          - show vlan brief
+      register: vlan_output
 
-    - name: Extract access VLAN from interface config
+    - name: Build VLAN-to-ports mapping
       set_fact:
-        device_vlan: >-
-          {{ (int_cfg.stdout[0] | regex_findall('switchport access vlan (\\d+)'))[0] | default('NONE') }}
+        vlan_port_lines: "{{ vlan_output.stdout[0].splitlines() }}"
+
+    - name: Find VLAN where interface is present
+      set_fact:
+        detected_vlan: >-
+          {{
+            vlan_port_lines
+            | select('search', golden.interface_intent.name)
+            | list
+            | first
+            | regex_findall('^(\\s*\\d+)')
+            | first
+            | int
+            if (vlan_port_lines | select('search', golden.interface_intent.name) | list | length > 0)
+            else 'NONE'
+          }}
 
     - name: Show comparison
       debug:
         msg:
           - "Approved VLAN (Git): {{ golden.interface_intent.access_vlan }}"
-          - "VLAN on interface: {{ device_vlan }}"
+          - "Detected VLAN on interface: {{ detected_vlan }}"
 
     - name: Fail if VLAN drift detected
       fail:
         msg: >-
           UNAUTHORIZED CHANGE:
           Interface {{ golden.interface_intent.name }}
-          moved from VLAN {{ golden.interface_intent.access_vlan }}
-          to VLAN {{ device_vlan }}
-      when: device_vlan != golden.interface_intent.access_vlan|string
+          expected in VLAN {{ golden.interface_intent.access_vlan }}
+          but found in VLAN {{ detected_vlan }}
+      when: detected_vlan|string != golden.interface_intent.access_vlan|string
+
 
