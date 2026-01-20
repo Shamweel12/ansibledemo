@@ -9,19 +9,19 @@
 
     - name: Set approved VLAN list
       set_fact:
-        approved_vlans: "{{ golden_data.approved_vlans }}"
+        approved_vlans: "{{ golden_data.approved_vlans | map('int') | list }}"
 
-    - name: Get VLAN list from device
+    - name: Get running configuration
       cisco.ios.ios_command:
         commands:
-          - show vlan brief
-      register: vlan_output
+          - show running-config
+      register: running_cfg
 
-    - name: Extract VLAN IDs from device output
+    - name: Extract VLAN IDs from running-config
       set_fact:
         device_vlans: >-
-          {{ vlan_output.stdout[0]
-             | regex_findall('^\\s*(\\d+)\\s+', multiline=True)
+          {{ running_cfg.stdout[0]
+             | regex_findall('^vlan\\s+(\\d+)', multiline=True)
              | map('int')
              | list }}
 
@@ -33,7 +33,7 @@
       debug:
         msg:
           - "Approved VLANs (Git): {{ approved_vlans }}"
-          - "VLANs on device: {{ device_vlans }}"
+          - "VLANs in running-config: {{ device_vlans }}"
           - "Unauthorized VLANs: {{ unauthorized_vlans }}"
 
     - name: Fail if unauthorized VLANs exist
