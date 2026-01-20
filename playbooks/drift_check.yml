@@ -1,43 +1,35 @@
-- name: Detect unauthorized VLANs (Exclusive Compliance)
+- name: Detect unauthorized interface VLAN change
   hosts: all
   gather_facts: no
 
   tasks:
-    - name: Load approved VLANs from golden file
+    - name: Load interface intent from golden file
       set_fact:
-        golden_data: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml }}"
+        golden: "{{ lookup('file', playbook_dir ~ '/../golden/' ~ inventory_hostname ~ '.yml') | from_yaml }}"
 
-    - name: Set approved VLAN list
-      set_fact:
-        approved_vlans: "{{ golden_data.approved_vlans | map('int') | list }}"
-
-    - name: Get running configuration
+    - name: Get running config of interface
       cisco.ios.ios_command:
         commands:
-          - show running-config
-      register: running_cfg
+          - "show running-config interface {{ golden.interface_intent.name }}"
+      register: int_cfg
 
-    - name: Extract VLAN IDs from running-config
+    - name: Extract access VLAN from interface config
       set_fact:
-        device_vlans: >-
-          {{ running_cfg.stdout[0]
-             | regex_findall('^vlan\\s+(\\d+)', multiline=True)
-             | map('int')
-             | list }}
+        device_vlan: >-
+          {{ (int_cfg.stdout[0] | regex_findall('switchport access vlan (\\d+)'))[0] | default('NONE') }}
 
-    - name: Find unauthorized VLANs
-      set_fact:
-        unauthorized_vlans: "{{ device_vlans | difference(approved_vlans) }}"
-
-    - name: Show compliance summary
+    - name: Show comparison
       debug:
         msg:
-          - "Approved VLANs (Git): {{ approved_vlans }}"
-          - "VLANs in running-config: {{ device_vlans }}"
-          - "Unauthorized VLANs: {{ unauthorized_vlans }}"
+          - "Approved VLAN (Git): {{ golden.interface_intent.access_vlan }}"
+          - "VLAN on interface: {{ device_vlan }}"
 
-    - name: Fail if unauthorized VLANs exist
+    - name: Fail if VLAN drift detected
       fail:
-        msg: "UNAUTHORIZED VLAN(S) DETECTED: {{ unauthorized_vlans }}"
-      when: unauthorized_vlans | length > 0
+        msg: >-
+          UNAUTHORIZED CHANGE:
+          Interface {{ golden.interface_intent.name }}
+          moved from VLAN {{ golden.interface_intent.access_vlan }}
+          to VLAN {{ device_vlan }}
+      when: device_vlan != golden.interface_intent.access_vlan|string
 
